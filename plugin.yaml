@@ -1,0 +1,12 @@
+name: opencode-usage
+description: Shows OpenCode Go subscription usage percentages (rolling 5h / weekly / monthly) as a footer on gateway messages
+version: 0.2.0
+author: Dev-Time
+license: MIT
+hooks:
+  - transform_llm_output
+requires_env:
+  - name: OPENCODE_GO_API_KEY
+    description: OpenCode Go API key (the same key you use for the opencode-go provider)
+    url: https://opencode.ai/zen
+    secret: true
