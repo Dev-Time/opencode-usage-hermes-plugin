@@ -140,9 +140,8 @@ def _one_month_like(reset):
     return timedelta(days=length)
 
 
-# Single source of truth for the footer wrapper. `*x*` (not `_x_`): format_message
-# escapes `_` as literal, so raw underscores render un-italicized on the normal path.
-_FOOTER_MD = "*{line}*"
+# Single source of truth for the footer wrapper: plain text, no emphasis markers.
+_FOOTER_MD = "{line}"
 
 
 def _is_footer_line(line: str) -> bool:

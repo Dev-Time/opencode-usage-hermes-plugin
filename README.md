@@ -1,6 +1,6 @@
 # opencode-usage — Hermes plugin
 
-Shows your OpenCode Go subscription usage as an italic footer on every gateway
+Shows your OpenCode Go subscription usage as a plain-text footer on every gateway
 message (Telegram, Discord, Slack, …):
 
 > …reply text…
