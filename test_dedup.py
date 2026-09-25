@@ -47,7 +47,8 @@ def main():
     once = run(CLEAN)
     twice = run(once)
     assert len(footers(twice)) == 1, f"not idempotent -> {twice!r}"
-    assert twice.rstrip().endswith("*"), twice
+    last = footers(twice)[0].strip()
+    assert not last.startswith(("*", "_")) and not last.endswith(("*", "_")), twice
     print("idempotent: 1 footer OK")
 
     # transform never emits leading blank lines and stays a single footer

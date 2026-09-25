@@ -1,9 +1,9 @@
 """Footer format determinism — golden snapshot test (no network).
 
 Goal: rendered footer byte-identical across consecutive runs unless the
-underlying usage content actually changed. The italic wrapper template lives
-in exactly one place (_footer) and is unconditional — no per-run conditional
-italics, no alternate em-dash/asterisk variant.
+underlying usage content actually changed. The footer template lives
+in exactly one place (_FOOTER_MD) and is unconditional plain text — no
+emphasis markers, no per-run conditional wrappers, no alternate variant.
 """
 import os
 import sys
@@ -46,29 +46,26 @@ def content_differs():
 
 def wrapper_invariant():
     """The SOURCE carries exactly one footer template — any conditional wrapper
-    or second italic/em-dash variant is a structural regression."""
+    or italic/em-dash variant is a structural regression."""
     src = open(PLUGIN_DIR + "/__init__.py").read()
-    assert src.count('_FOOTER_MD = "*{line}*"') == 1, "footer wrapper must be a single template constant"
+    assert src.count('_FOOTER_MD = "{line}"') == 1, "footer wrapper must be a single template constant"
     assert src.count("_FOOTER_MD.format(") == 2, "both emit sites must render the one template"
-    assert "_{line}_" not in src, "raw underscore wrapper reintroduced"
-    assert "*_{line}" not in src and "_{line}*" not in src, "mixed asterisk/underscore variant"
+    assert "*{line}*" not in src and "_{line}_" not in src, "italic wrapper reintroduced"
     return True
 
-def asterisk_wrapper():
-    """Output is wrapped in standard-markdown `*...*` so Telegram's format_message
-    converts it to a parse-safe, italic MarkdownV2 `_..._`."""
+def no_italic_wrapper():
+    """Output carries no italic styling: no asterisk/underscore emphasis markers."""
     g = golden()
-    assert g.endswith("*") and g.rindex("*") > g.rindex("\n"), f"footer must brace with *: {g!r}"
+    assert "*" not in g, f"asterisk leaked: {g!r}"
     inner = g.rsplit("\n\n", 1)[1]
-    assert inner.startswith("*") and inner.endswith("*"), inner
     assert not inner.startswith("_") and not inner.endswith("_"), f"underscore wrapper leaked: {inner!r}"
     return True
 
 if __name__ == "__main__":
     g = golden()
     print("GOLDEN:", g)
-    assert g.rindex("*") > g.rindex("\n"), "wrapper braces the footer line"
+    assert "*" not in g and "_" not in g, f"emphasis markers leaked: {g!r}"
     assert content_differs()
     assert wrapper_invariant()
-    assert asterisk_wrapper()
+    assert no_italic_wrapper()
     print("ALL GOLDEN CHECKS PASS")

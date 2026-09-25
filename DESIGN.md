@@ -21,7 +21,7 @@ that Wyatt gets today, without touching any Wyatt-specific paths or secrets.
     `OPENCODE_GO_BASE_URL` (core supports that override env var).
   - Cache TTL 120s (module-level `_state`, single-process cache).
   - Footer formatting (`Go: 5h · wk · mo` labels), gateway-only filter
-    (`platform == "cli"` skipped), markdown italic wrapper.
+    (`platform == "cli"` skipped), plain (non-italic) footer text.
 - API key: already the *standard* OpenCode Go provider env var
   (`OPENCODE_GO_API_KEY`, fallback `OPENCODE_ZEN_API_KEY`). On real installs
   `hermes auth` / `.env` already sets it — no new secret format needed.
