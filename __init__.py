@@ -63,6 +63,20 @@ def _fetch_usage():
         return None
 
 
+def _compact_time(seconds) -> str:
+    """Largest single unit only: 4h49m -> '4.8h', 2d3h -> '2.1d', 18d23h -> '19d'.
+
+    Unit is picked from the raw value, then hours/days get one decimal;
+    a whole number of days drops the '.0' ('19d'), minutes stay whole.
+    """
+    if seconds >= 86400:
+        days = round(seconds / 86400, 1)
+        return f"{int(days)}d" if days == int(days) else f"{days}d"
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f}h"
+    return f"{seconds // 60}m"
+
+
 def _resets_in(value) -> str:
     """Relative countdown from the window's own resetsAt field."""
     text = str(value or "").replace("Z", "+00:00").strip()
@@ -76,28 +90,22 @@ def _resets_in(value) -> str:
         return ""
     if seconds <= 0:
         return "now"
-    days, rem = divmod(seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes = rem // 60
-    if days:  # at most two units; minutes never shown once days remain
-        return f"{days}d{hours}h" if hours else f"{days}d"
-    if hours:
-        return f"{hours}h{minutes}m" if minutes else f"{hours}h"
-    return f"{minutes}m"
+    return _compact_time(seconds)
 
 
-def _pacing(last_percent, resets_at, now=None, *, weekly=False):
+def _pacing(last_percent, resets_at, now=None, *, span=None):
     """Proportional pacing verdict: usage % vs expected % of window elapsed.
 
     Both boundaries come from the limit's own resetsAt: window END is the
-    actual reset time, START = reset minus the period (7 days weekly;
-    the previous same-length month, 28-31 days, monthly).  2026-09-23
-    live sample: weekly resetsAt 2026-09-28T00:00Z, monthly
+    actual reset time, START = reset minus ``span`` — one generic window
+    length for every period (5h rolling, 7d weekly, and the previous
+    same-length month, 28-31 days, when ``span`` is omitted for monthly).
+    2026-09-23 live sample: weekly resetsAt 2026-09-28T00:00Z, monthly
     2026-10-14T19:53Z.
     """
     if last_percent is None or last_percent == "—":
         return ""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
     if now is None:
         now = datetime.now(timezone.utc)
@@ -108,10 +116,9 @@ def _pacing(last_percent, resets_at, now=None, *, weekly=False):
             reset = reset.replace(tzinfo=timezone.utc)
     except ValueError:
         return ""
-    if weekly:
-        start = reset - timedelta(days=7)
-    else:
-        start = reset - _one_month_like(reset)
+    if span is None:
+        span = _one_month_like(reset)
+    start = reset - span
     total = (reset - start).total_seconds()
     elapsed = (now - start).total_seconds()
     if total <= 0:
@@ -176,11 +183,19 @@ def _strip_footers(text: str) -> str:
 _BUDGET = 50  # visible chars per footer line — budget of record (FOOTER-SPEC §4)
 
 
+def _paced(percent) -> bool:
+    """Pacing renders only once 10% of a period's usage has been spent."""
+    try:
+        return float(percent) >= 10
+    except (TypeError, ValueError):
+        return False
+
+
 def _segment_text(segment):
     label, pct, pace, reset = segment
     text = f"{label} {pct}%"
-    if pace:
-        text += f" {pace}"
+    if pace and _paced(pct):
+        text += f" ({pace})"
     if reset:
         text += f" {reset}"
     return text
@@ -205,19 +220,17 @@ def _usage_line():
     data = _fetch_usage()
     if not data:
         return ""
+    from datetime import timedelta
     windows = data.get("usage") or {}
+    # window length per period; monthly derives its span from its own resetsAt
+    spans = {"rolling": timedelta(hours=5), "weekly": timedelta(days=7)}
     segments = []
     for label, key_name in (("5h", "rolling"), ("wk", "weekly"), ("mo", "monthly")):
         w = windows.get(key_name)
         if isinstance(w, dict) and w.get("percent") is not None:
-            pace = ""
-            if key_name != "rolling":  # pacing only for weekly/monthly limits
-                pace = _pacing(
-                    w["percent"], w.get("resetsAt"), weekly=(key_name == "weekly")
-                )
-            segments.append(
-                (label, str(w["percent"]), pace, _resets_in(w.get("resetsAt")))
-            )
+            pct = w["percent"]
+            pace = _pacing(pct, w.get("resetsAt"), span=spans.get(key_name))
+            segments.append((label, str(pct), pace, _resets_in(w.get("resetsAt"))))
     return _render_footer(segments)
 
 
