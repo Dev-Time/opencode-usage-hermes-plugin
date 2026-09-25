@@ -1,5 +1,6 @@
 """Integration: footer line shape from a mocked /usage payload."""
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -24,19 +25,20 @@ pl._fetch_usage = _full
 
 line = pl._usage_line()
 print("LINE:", line)
-assert line.startswith("Go: 5h 72%"), line
+assert line.startswith("5h 72%"), line
+assert "resets in" not in line, line                      # compact relative reset
+assert "pace" not in line and "AHEAD" not in line and "UNDER" not in line, line
+assert all(len(l) <= pl._BUDGET for l in line.split("\n")), line
 rolling = line.split(" · ")[0]
-assert "[pace" not in rolling, f"rolling must not pace: {rolling}"
-assert "resets in" in rolling, rolling
+assert not re.search(r"[+-]\d+%", rolling), f"rolling must not pace: {rolling}"
 wk, mo = line.split(" · ")[1], line.split(" · ")[2]
-assert "[pace" in wk and "[pace" in mo, line
-assert "AHEAD" in wk or "UNDER" in wk or "ok" in wk, wk
+assert re.search(r"[+-]\d+%", wk) and re.search(r"[+-]\d+%", mo), line
 
-# degrade: window without resetsAt -> no pace, no crash
+# degrade: window without resetsAt -> no pace, no reset, no crash
 pl._fetch_usage = lambda: {"usage": {"weekly": {"percent": 41}}}
 line2 = pl._usage_line()
 print("LINE2:", line2)
-assert "[pace" not in line2, line2
+assert line2 == "wk 41%", line2
 
 # transform: echo-footer stripped, one fresh footer appended
 pl._fetch_usage = _full
@@ -44,6 +46,7 @@ out = pl.transform_llm_output("hello\n_Go: 5h 72% (resets in 1h) · wk 41% [pace
                               platform="telegram")
 print("TRANSFORM:", out)
 assert out.startswith("hello\n"), out
-assert out.count("Go: 5h") == 1, out
+footers = [l for l in out.split("\n") if pl._is_footer_line(l)]
+assert len(footers) == 1, out
 
 print("INTEGRATION OK")

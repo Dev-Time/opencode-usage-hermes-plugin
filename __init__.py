@@ -4,6 +4,7 @@ final gateway message footer via transform_llm_output."""
 import json
 import logging
 import os
+import re
 import time
 from urllib.request import Request, urlopen
 
@@ -74,18 +75,15 @@ def _resets_in(value) -> str:
     except ValueError:
         return ""
     if seconds <= 0:
-        return "resets now"
+        return "now"
     days, rem = divmod(seconds, 86400)
     hours, rem = divmod(rem, 3600)
     minutes = rem // 60
-    parts = []
-    if days:
-        parts.append(f"{days}d")
+    if days:  # at most two units; minutes never shown once days remain
+        return f"{days}d{hours}h" if hours else f"{days}d"
     if hours:
-        parts.append(f"{hours}h")
-    if minutes or (not days and not hours):
-        parts.append(f"{minutes}m")
-    return "resets in " + " ".join(parts)
+        return f"{hours}h{minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
 
 
 def _pacing(last_percent, resets_at, now=None, *, weekly=False):
@@ -121,9 +119,10 @@ def _pacing(last_percent, resets_at, now=None, *, weekly=False):
     expected = max(0.0, min(1.0, elapsed / total)) * 100  # % of window elapsed
     usage = float(last_percent)
     delta = usage - expected
-    tag = "AHEAD" if delta > 1.0 else ("UNDER" if delta < -1.0 else "on pace")
-    pcts = f"{delta:+.0f}%"
-    return f"pace {tag} {pcts}" if tag != "on pace" else "pace ok"
+    magnitude = int(abs(delta) + 0.5)  # rounds half away from zero
+    if magnitude == 0:
+        return "+0%"  # zero never renders as -0%
+    return f"{'+' if delta > 0 else '-'}{magnitude}%"
 
 
 def _one_month_like(reset):
@@ -145,16 +144,22 @@ def _one_month_like(reset):
 _FOOTER_MD = "*{line}*"
 
 
+# Compact single line starts at the rolling segment; 3-line rows carry "Go:" —
+# both are "<label> <pct>…". Legacy echoes keep the "Go:" + " · "/"..." clauses.
+_FOOTER_ROW_RE = re.compile(r"^(?:Go: )?(?:5h|wk|mo) \d+%")
+
+
 def _is_footer_line(line: str) -> bool:
     """True for a usage-footer line, whatever emitted it (plugin or model echo).
 
-    Matches both the plain and the enhanced format ("(resets in …)" / "[pace …]"
-    suffixes) plus degenerate model echoes like ``_Go: ..._``.
+    Covers legacy plain/enhanced shapes ("(resets in …)" / "[pace …]" suffixes,
+    degenerate echoes like ``_Go: ..._``), the compact single line, and each
+    row of the 3-line fallback.
     """
     s = line.strip().strip("_").strip("*").strip()
-    if not s.startswith("Go:"):
-        return False
-    return " · " in s or s.endswith("...") or (s.startswith("Go: 5h ") and s.endswith("%"))
+    if s.startswith("Go:") and (" · " in s or s.endswith("...")):
+        return True
+    return bool(_FOOTER_ROW_RE.match(s))
 
 
 def _strip_footers(text: str) -> str:
@@ -169,27 +174,52 @@ def _strip_footers(text: str) -> str:
     return "\n".join(kept).rstrip()
 
 
+_BUDGET = 50  # visible chars per footer line — budget of record (FOOTER-SPEC §4)
+
+
+def _segment_text(segment):
+    label, pct, pace, reset = segment
+    text = f"{label} {pct}%"
+    if pace:
+        text += f" {pace}"
+    if reset:
+        text += f" {reset}"
+    return text
+
+
+def _render_footer(segments, budget=_BUDGET):
+    """Pure presentation ladder: L0 single line; if over budget, L1 drops only
+    the rolling reset; if still over budget, exactly 3 lines (one per limit).
+    segments: (label, pct, pace, reset) tuples, pace/reset '' when absent."""
+    full = " · ".join(_segment_text(s) for s in segments)
+    if len(full) <= budget:
+        return full
+    label, pct, pace, _ = segments[0]
+    trimmed = [(label, pct, pace, "")] + list(segments[1:])
+    one_line = " · ".join(_segment_text(s) for s in trimmed)
+    if len(one_line) <= budget:
+        return one_line
+    return "\n".join("Go: " + _segment_text(s) for s in segments)
+
+
 def _usage_line():
     data = _fetch_usage()
     if not data:
         return ""
     windows = data.get("usage") or {}
-    parts = []
-    for label, key_name in (("Go: 5h", "rolling"), ("wk", "weekly"), ("mo", "monthly")):
+    segments = []
+    for label, key_name in (("5h", "rolling"), ("wk", "weekly"), ("mo", "monthly")):
         w = windows.get(key_name)
         if isinstance(w, dict) and w.get("percent") is not None:
-            piece = f"{label} {w['percent']}%"
-            reset_in = _resets_in(w.get("resetsAt"))
-            if reset_in:
-                piece += f" ({reset_in})"
-            parts.append(piece)
+            pace = ""
             if key_name != "rolling":  # pacing only for weekly/monthly limits
                 pace = _pacing(
                     w["percent"], w.get("resetsAt"), weekly=(key_name == "weekly")
                 )
-                if pace:
-                    parts[-1] += f" [{pace}]"
-    return " · ".join(parts)
+            segments.append(
+                (label, str(w["percent"]), pace, _resets_in(w.get("resetsAt")))
+            )
+    return _render_footer(segments)
 
 
 def transform_llm_output(response_text, model=None, platform=None, session_id=None, **kwargs):

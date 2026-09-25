@@ -8,11 +8,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from __init__ import _pacing, _one_month_like  # noqa
 
 
-def run(weekly, resets_at, now, pct, expect_tag):
+def run(weekly, resets_at, now, pct, expect_verdict):
     out = _pacing(pct, resets_at, now=now, weekly=weekly)
     print(f"weekly={weekly} reset={resets_at} now={now} pct={pct} -> {out!r}")
     assert out, "no verdict"
-    assert expect_tag.lower() in out.lower(), out
+    # bare signed pace: behind = '-', ahead = '+', exact = '+0%'
+    if expect_verdict == "UNDER":
+        assert out.startswith("-"), out
+    elif expect_verdict == "AHEAD":
+        assert out.startswith("+") and out != "+0%", out
+    else:
+        assert out == "+0%", out
     return out
 
 
@@ -28,7 +34,7 @@ run(True, W, late, 100, "AHEAD")     # late window, above pace -> AHEAD
 run(True, W, late, 30, "UNDER")      # late window, moderate % -> UNDER
 # exact pace: now at 50% of window, usage 50 -> ok
 mid = ISO(W) - timedelta(days=3, hours=12)
-assert "ok" in _pacing(50, W, now=mid, weekly=True), "exact pace weekly"
+assert _pacing(50, W, now=mid, weekly=True) == "+0%", "exact pace weekly"
 
 # --- weekly, NON-Monday / non-midnight reset: window must END at resetsAt --
 # Old code anchored to truncated-Monday; with reset Wed 19:53Z it built a
@@ -36,7 +42,7 @@ assert "ok" in _pacing(50, W, now=mid, weekly=True), "exact pace weekly"
 W2 = "2026-09-30T19:53:39Z"         # Wednesday, wall-clock time
 start2 = ISO(W2) - timedelta(days=7)
 mid2 = start2 + (ISO(W2) - start2) / 2        # exactly 50% elapsed
-assert "ok" in _pacing(50, W2, now=mid2, weekly=True), "non-Monday exact pace"
+assert _pacing(50, W2, now=mid2, weekly=True) == "+0%", "non-Monday exact pace"
 run(True, W2, start2 + timedelta(hours=24), 5, "UNDER")    # 14% elapsed, 5% -> UNDER
 run(True, W2, start2 + timedelta(hours=24), 80, "AHEAD")   # 14% elapsed, 80% -> AHEAD
 run(True, W2, ISO(W2) - timedelta(hours=6), 100, "AHEAD")  # ~96% elapsed, 100% -> AHEAD
@@ -45,13 +51,13 @@ run(True, W2, ISO(W2) - timedelta(hours=6), 100, "AHEAD")  # ~96% elapsed, 100% 
 M = "2026-10-14T19:53:39Z"          # reset-anchored, previous month span
 mstart = ISO(M) - _one_month_like(ISO(M))     # 2026-09-14 19:53 (30d span)
 mnow = mstart + (ISO(M) - mstart) / 2
-assert "ok" in _pacing(50, M, now=mnow, weekly=False), "exact pace monthly"
+assert _pacing(50, M, now=mnow, weekly=False) == "+0%", "exact pace monthly"
 run(False, M, mstart + timedelta(days=3), 3, "UNDER")      # 10% elapsed, 3% -> UNDER
 run(False, M, ISO(M) - timedelta(days=2), 95, "AHEAD")     # 93% elapsed, 95% -> AHEAD
 # short-month awareness: reset Mar 1 -> Feb window (28d, non-leap 2027)
 f27 = _pacing(50, "2027-03-01T00:00:00Z",
               now=datetime(2027, 2, 15, 0, 0, tzinfo=timezone.utc), weekly=False)
 print(f"feb short month -> {f27!r}")
-assert "ok" in f27, f27               # 14/28 = 50% elapsed, 50% usage
+assert f27 == "+0%", f27               # 14/28 = 50% elapsed, 50% usage
 
 print("ALL PACING SEEDS PASS")
