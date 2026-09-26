@@ -68,6 +68,15 @@ def main():
     assert p.transform_llm_output(None, platform="telegram") is None
     print("platform/empty guards OK")
 
+    # echoes the guard used to miss: mangled label, fractional %, backticks, **_…_**
+    for echo in ("Body.\n\n6h 1% · wk 11% (-62%) 1.9d · mo 44% (+6%) 18.7d",
+                 "Body.\n\n5h 9.5% · wk 11% · mo 44%",
+                 "Body.\n\n`5h 0% · wk 11% · mo 44%`",
+                 "Body.\n\n**_Go: 5h 6% · wk 7% · mo 42%_**"):
+        out = run(echo)
+        assert len(footers(out)) == 1 and echo.split("\n")[-1] not in out, repr(out)
+    print("escaped echoes: stale footer stripped OK")
+
     print("ALL DEDUP CHECKS PASS")
 
 

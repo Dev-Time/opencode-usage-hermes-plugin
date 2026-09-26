@@ -152,7 +152,9 @@ _FOOTER_MD = "{line}"
 
 # Compact single line starts at the rolling segment; 3-line rows carry "Go:" —
 # both are "<label> <pct>…". Legacy echoes keep the "Go:" + " · "/"..." clauses.
-_FOOTER_ROW_RE = re.compile(r"^(?:Go: )?(?:5h|wk|mo) \d+%")
+# Any <n>h label (not just 5h) and fractional percents: the model rewrites labels
+# and precision when it echoes, and a missed echo means a second footer appended.
+_FOOTER_ROW_RE = re.compile(r"^(?:Go: )?(?:\d+h|wk|mo) \d+(?:\.\d+)?%")
 
 
 def _is_footer_line(line: str) -> bool:
@@ -162,7 +164,8 @@ def _is_footer_line(line: str) -> bool:
     degenerate echoes like ``_Go: ..._``), the compact single line, and each
     row of the 3-line fallback.
     """
-    s = line.strip().strip("_").strip("*").strip()
+    # One pass over markers: "**_…_**" needs repeats, order-sensitive strips miss it.
+    s = line.strip().strip(" *_`")
     if s.startswith("Go:") and (" · " in s or s.endswith("...")):
         return True
     return bool(_FOOTER_ROW_RE.match(s))
