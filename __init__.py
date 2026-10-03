@@ -259,5 +259,73 @@ def transform_llm_output(response_text, model=None, platform=None, session_id=No
         return None
 
 
+def _strip_message_content(content):
+    """Footer-free copy of one assistant message's content, or None when nothing to strip.
+
+    The footer-presence gate matters: _strip_footers also collapses blank-line runs, so
+    running it unconditionally would report clean messages as changed (middleware_trace
+    noise + needless request rewrites that break the stable prompt-cache prefix).
+    """
+    if isinstance(content, str):
+        if not any(_is_footer_line(ln) for ln in content.split("\n")):
+            return None
+        cleaned = _strip_footers(content)
+        return cleaned if cleaned != content else None
+    if isinstance(content, list):
+        parts, changed = [], False
+        for part in content:
+            text = part.get("text") if isinstance(part, dict) else None
+            if isinstance(text, str) and any(_is_footer_line(ln) for ln in text.split("\n")):
+                cleaned = _strip_footers(text)
+                if cleaned != text:
+                    part = dict(part)
+                    part["text"] = cleaned
+                    changed = True
+            parts.append(part)
+        return parts if changed else None
+    return None
+
+
+def strip_footers_from_request(**kwargs):
+    """llm_request middleware: drop usage-footer rows from assistant history before the
+    provider sees them — the model echoes footers it finds in its own prior messages.
+
+    Request-only: session DB keeps the footer the user saw (#44239). Runs per provider
+    attempt (agent/turn_api_request.py), covering retries and tool-loop calls.
+    """
+    try:
+        request = kwargs.get("request")
+        if not isinstance(request, dict):
+            return None
+        new_request, changed = None, False
+        for key in ("messages", "input"):  # chat-completions + Responses API
+            items = request.get(key)
+            if not isinstance(items, list):
+                continue
+            new_items = None
+            for i, item in enumerate(items):
+                if not isinstance(item, dict) or item.get("role") != "assistant":
+                    continue
+                cleaned = _strip_message_content(item.get("content"))
+                if cleaned is None:
+                    continue
+                if new_items is None:
+                    new_items = list(items)
+                new_items[i] = {**item, "content": cleaned}
+                changed = True
+            if new_items is not None:
+                if new_request is None:
+                    new_request = dict(request)
+                new_request[key] = new_items
+        if not changed:
+            return None
+        return {"request": new_request, "source": "opencode-usage",
+                "reason": "strip usage footers from history"}
+    except Exception as exc:
+        logger.debug("opencode-usage request strip failed: %s", exc)
+        return None
+
+
 def register(ctx):
     ctx.register_hook("transform_llm_output", transform_llm_output)
+    ctx.register_middleware("llm_request", strip_footers_from_request)

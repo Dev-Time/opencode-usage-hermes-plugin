@@ -5,6 +5,10 @@ author: Dev-Time
 license: MIT
 hooks:
   - transform_llm_output
+provides_hooks:
+  - transform_llm_output
+provides_middleware:
+  - llm_request
 requires_env:
   - name: OPENCODE_GO_API_KEY
     description: OpenCode Go API key (the same key you use for the opencode-go provider)

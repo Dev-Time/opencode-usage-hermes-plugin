@@ -15,8 +15,8 @@ def _full():
     return {
         "usage": {
             "rolling": {"percent": 72, "resetsAt": _pl(0, 3)},
-            "weekly": {"percent": 41, "resetsAt": "2026-09-28T00:00:00Z"},
-            "monthly": {"percent": 60, "resetsAt": "2026-10-14T19:53:39Z"},
+            "weekly": {"percent": 41, "resetsAt": _pl(7)},
+            "monthly": {"percent": 60, "resetsAt": _pl(30)},
         }
     }
 
