@@ -88,6 +88,7 @@ tests (`test_*.py`, `golden_test.py` — all offline except `live_check.py`).
 python3 test_pacing.py        # pacing seeds
 python3 test_integration.py   # footer shape from mocked payload
 python3 test_dedup.py         # exactly one footer, idempotent
+python3 test_middleware.py    # llm_request history-strip middleware
 python3 golden_test.py        # byte-identical consecutive renders
 python3 live_check.py         # live API check (needs key in env)
 ```

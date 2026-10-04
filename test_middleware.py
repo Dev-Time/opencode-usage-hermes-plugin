@@ -92,6 +92,21 @@ first = out["request"]
 assert mw(request=first) is None
 print("idempotent OK")
 
+# assistant row with tool_calls: content cleaned, tool_calls preserved
+out = mw(request={"messages": [
+    {"role": "assistant", "content": f"calling\n\n{FOOTER_A}",
+     "tool_calls": [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}]},
+]})
+row = out["request"]["messages"][0]
+assert row["content"] == "calling"
+assert row["tool_calls"] == [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}]
+print("tool_calls preserved OK")
+
+# footer-only assistant row strips to "" (kept, never dropped — role alternation)
+out = mw(request={"messages": [{"role": "assistant", "content": FOOTER_A}]})
+assert out["request"]["messages"][0]["content"] == ""
+print("footer-only -> empty string OK")
+
 # register() wires both surfaces
 class _Ctx:
     def __init__(self):
